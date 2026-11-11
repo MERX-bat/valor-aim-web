@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAL-AIM | 网页端练枪工具</title>
+    <style>
+        /* 界面配色还原瓦罗兰特暗色电竞风 */
+        :root {
+            --bg-color: #12141c;
+            --panel-bg: #171b26;
+            --panel-border: #2a3143;
+            --accent-red: #f94555;
+            --accent-hover: #e03c4a;
+            --btn-secondary: #323844;
+            --btn-secondary-hover: #414958;
+            --text-main: #ece8e1;
+            --text-muted: #8b92a5;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg-color); color: var(--text-main); overflow: hidden; }
+        
+        #mobile-warning { display: none; position: fixed; inset: 0; background: var(--bg-color); z-index: 9999; color: var(--accent-red); justify-content: center; align-items: center; text-align: center; padding: 20px; font-size: 24px; font-weight: bold; }
+        @media (max-width: 768px) { #mobile-warning { display: flex; } }
+
+        /* 画布与网格 */
+        canvas { display: block; width: 100vw; height: 100vh; background-color: #141722; cursor: crosshair; }
+
+        .ui-layer { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; background: rgba(18, 20, 28, 0.7); backdrop-filter: blur(4px); }
+        .hidden { display: none !important; }
+
+        .panel { 
+            background: var(--panel-bg); border: 1px solid var(--panel-border); padding: 40px; 
+            border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; 
+            width: 90%; max-width: 850px; max-height: 90vh; overflow-y: auto;
+        }
+        
+        h1 { color: var(--accent-red); font-size: 3.5rem; letter-spacing: 2px; margin-bottom: 10px; }
+        h2 { font-size: 1.8rem; margin-bottom: 20px; color: #fff; letter-spacing: 1px; }
+        h3 { font-size: 1.2rem; margin-bottom: 20px; color: #fff; }
+        .subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 30px; }
+        .highlight { color: var(--accent-red); font-weight: bold; }
+
+        /* 按钮排版 */
+        button { 
+            background: var(--accent-red); color: #fff; border: none; padding: 12px 24px; 
+            margin: 8px; font-size: 14px; font-weight: bold; cursor: pointer; 
+            transition: 0.2s; border-radius: 4px; text-transform: uppercase; 
+        }
+        button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 4px 10px rgba(249, 69, 85, 0.4); }
+        button:active { transform: translateY(0); }
+        button.secondary { background: var(--btn-secondary); color: #fff; }
+        button.secondary:hover { background: var(--btn-secondary-hover); }
+        
+        .mode-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 15px; }
+        .mode-row { display: flex; justify-content: center; width: 100%; gap: 10px; }
+        
+        /* 设置表单 */
+        .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; text-align: left; }
+        .setting-group { margin-bottom: 15px; }
+        .setting-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 5px; }
+        input[type="range"], input[type="number"], input[type="text"], select { 
+            width: 100%; background: #1f2533; color: #fff; border: 1px solid #3a4358; 
+            padding: 10px; border-radius: 4px; outline: none; font-size: 14px; transition: 0.2s;
+        }
+        input:focus, select:focus { border-color: var(--accent-red); }
+        
+        /* 游戏中 HUD */
+        #hud { position: absolute; top: 20px; left: 0; width: 100%; display: flex; justify-content: space-around; pointer-events: none; z-index: 5; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 4px #000; color: rgba(255,255,255,0.8); }
+        #warmup-display { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 6rem; font-weight: bold; color: var(--accent-red); pointer-events: none; z-index: 6; text-shadow: 0 0 20px rgba(249,69,85,0.6); }
+
+        /* 表格与弹窗 */
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; background: #1a1f2c; }
+        th, td { border: 1px solid var(--panel-border); padding: 10px; text-align: center; }
+        th { background: #212736; color: var(--text-main); font-weight: normal; }
+        
+        .modal { background: var(--panel-bg); border: 1px solid var(--accent-red); padding: 25px; border-radius: 8px; max-width: 400px; width: 100%; text-align: center; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
+        .edpi-display { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px; text-align: center; margin-top: 10px; font-weight: bold; color: var(--accent-red); border: 1px dashed var(--panel-border); }
+    </style>
+</head>
+<body>
+
+<div id="mobile-warning">请在 PC 端游玩以获得真实的鼠标瞄准体验。</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud" class="hidden">
+    <div id="hud-time">时间: ∞</div>
+    <div id="hud-score">得分: 0</div>
+    <div id="hud-acc">命中率: 100%</div>
+</div>
+<div id="warmup-display" class="hidden"></div>
+
+<!-- 菜单 UI -->
+<div id="ui-layer" class="ui-layer">
+    
+    <div id="main-menu" class="panel">
+        <h1>VAL-AIM</h1>
+        <div class="subtitle">
+            纯前端无畏契约线上练枪工具 | 无需下载 | <span class="highlight">按 ESC 暂停/退出</span> | <span class="highlight">按 R 重开</span>
+        </div>
+        
+        <h3>选择训练模式</h3>
+        
+        <div class="mode-container">
+            <div class="mode-row">
+                <button onclick="startGame('sixshot')">定位 (SIX SHOT)</button>
+                <button onclick="startGame('track')">跟枪 (TRACK)</button>
+                <button onclick="startGame('reaction')">反应 (REACTION)</button>
+                <button onclick="startGame('strafe')">急停 (STRAFE)</button>
+            </div>
+            <div class="mode-row">
+                <button onclick="startGame('fastclick')">连点 (FAST CLICK)</button>
+                <button onclick="startGame('peek')" style="border: 2px solid #fff;">闪身对枪 (PEEK) NEW</button>
+            </div>
+        </div>
+
+        <div style="margin-top: 30px;">
+            <button class="secondary" onclick="showPanel('settings-menu')">设置 / 准星</button>
+            <button class="secondary" onclick="showPanel('history-menu')">历史 / 排行</button>
+            <button class="secondary" onclick="toggleSensModal(true)">灵敏度换算</button>
+        </div>
+    </div>
+
+    <!-- 设置面板 -->
+    <div id="settings-menu" class="panel hidden">
+        <h2>系统与准星设置</h2>
+        <div class="grid-2col">
+            <!-- 左侧通用与灵敏度 -->
+            <div>
+                <div class="setting-group">
+                    <label>玩家昵称 (用于排行榜)</label>
+                    <input type="text" id="set-nickname" value="Player" maxlength="12">
+                </div>
+                <div class="grid-2col" style="gap: 10px;">
+                    <div class="setting-group">
+                        <label>鼠标 DPI</label>
+                        <input type="number" id="set-dpi" step="50" value="800" oninput="updateEDPIDisplay()">
+                    </div>
+                    <div class="setting-group">
+                        <label>游戏灵敏度 (Sens)</label>
+                        <input type="number" id="set-sens" step="0.01" value="0.3" oninput="updateEDPIDisplay()">
+                    </div>
+                </div>
+                <div class="edpi-display" id="display-edpi">当前 eDPI: 240</div>
+                <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 15px;">* 2D 网页视距与 3D 游戏存在视差，系统已自动缩放匹配手感。</p>
+                
+                <div class="setting-group">
+                    <label>训练时长</label>
+                    <select id="set-duration">
+                        <option value="0">无限模式 (仅手动退出)</option>
+                        <option value="30">30 秒</option>
+                        <option value="60" selected>60 秒</option>
+                        <option value="90">90 秒</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label>靶子难度 (大小/速度)</label>
+                    <select id="set-difficulty">
+                        <option value="easy">新手 (慢速/大靶)</option>
+                        <option value="normal" selected>标准 (正常)</option>
+                        <option value="hard">高手 (高速/小靶)</option>
+                    </select>
+                </div>
+                <div class="setting-group" style="display: flex; align-items: center; gap: 10px;">
+                    <label style="margin:0;">开启音效</label>
+                    <input type="checkbox" id="set-audio" checked style="width: auto;">
+                </div>
+            </div>
+            
+            <!-- 右侧准星 -->
+            <div>
+                <div class="setting-group">
+                    <label>准星颜色 (Hex)</label>
+                    <input type="text" id="set-xhair-color" value="#00FF00">
+                </div>
+                <div class="setting-group">
+                    <label>准星长度 (Length)</label>
+                    <input type="range" id="set-xhair-len" min="0" max="50" value="6">
+                </div>
+                <div class="setting-group">
+                    <label>粗细 (Thickness)</label>
+                    <input type="range" id="set-xhair-thick" min="1" max="10" value="2">
+                </div>
+                <div class="setting-group">
+                    <label>间隙 (Gap)</label>
+                    <input type="range" id="set-xhair-gap" min="0" max="50" value="3">
+                </div>
+                <div class="setting-group" style="display: flex; align-items: center; gap: 10px;">
+                    <label style="margin:0;">中心点 (Center Dot)</label>
+                    <input type="checkbox" id="set-xhair-dot" style="width: auto;">
+                </div>
+            </div>
+        </div>
+        <div style="margin-top: 30px;">
+            <button onclick="saveSettings()">保存配置并返回</button>
+            <button class="secondary" onclick="showPanel('main-menu')">取消</button>
+        </div>
+    </div>
+
+    <!-- 统计面板 -->
+    <div id="stats-menu" class="panel hidden">
+        <h2>训练结束</h2>
+        <h3 id="stat-mode" style="color: var(--accent-red);">模式: </h3>
+        <div class="grid-2col" style="margin-bottom: 30px; font-size: 18px; text-align: center;">
+            <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px;">
+                <div style="color: var(--text-muted); font-size:14px;">最终得分</div>
+                <div id="stat-score" style="font-size: 32px; font-weight:bold; color:var(--accent-red);">0</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px;">
+                <div style="color: var(--text-muted); font-size:14px;">命中率</div>
+                <div id="stat-acc" style="font-size: 32px; font-weight:bold;">0%</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px;">
+                <div style="color: var(--text-muted); font-size:14px;">总射击 / 命中</div>
+                <div id="stat-shots" style="font-size: 24px; font-weight:bold;">0 / 0</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px;">
+                <div style="color: var(--text-muted); font-size:14px;">平均反应时长</div>
+                <div style="font-size: 24px; font-weight:bold;"><span id="stat-rt">0</span> ms</div>
+            </div>
+        </div>
+        <div>
+            <button onclick="retryGame()">再来一局 (按 R)</button>
+            <button class="secondary" onclick="showPanel('main-menu')">返回主页</button>
+            <button class="secondary" onclick="showPanel('history-menu')">查看排行榜</button>
+        </div>
+    </div>
+
+    <!-- 历史面板 -->
+    <div id="history-menu" class="panel hidden" style="max-width: 900px;">
+        <h2>本地排行榜与历史战绩</h2>
+        <div style="margin-bottom: 20px; display:flex; gap: 15px; align-items:center; justify-content:center;">
+            <label style="color: var(--text-muted);">筛选模式: </label>
+            <select id="hist-mode-select" onchange="renderHistory()" style="width: auto; min-width: 200px;">
+                <option value="sixshot">定位 (SIX SHOT)</option>
+                <option value="track">跟枪 (TRACK)</option>
+                <option value="reaction">反应 (REACTION)</option>
+                <option value="strafe">急停 (STRAFE)</option>
+                <option value="fastclick">连点 (FAST CLICK)</option>
+                <option value="peek">闪身对枪 (PEEK)</option>
+            </select>
+        </div>
+        <div style="display:flex; justify-content: center; gap: 20px; margin-bottom: 15px;">
+            <button class="secondary" onclick="switchHistTab('leaderboard')" id="tab-lb" style="color: var(--accent-red);">🏆 TOP 20 排行榜</button>
+            <button class="secondary" onclick="switchHistTab('history')" id="tab-hist">🕒 最近历史记录</button>
+        </div>
+        <div id="hist-table-container" style="max-height: 350px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 5px;"></div>
+        <div style="margin-top: 25px;">
+            <button class="secondary" onclick="clearHistory()">清空当前模式</button>
+            <button onclick="showPanel('main-menu')">返回主页</button>
+        </div>
+    </div>
+    
+    <!-- 灵敏度换算弹窗 -->
+    <div id="sens-modal" class="modal hidden" style="position: absolute; z-index: 100;">
+        <h3 style="color: var(--accent-red);">灵敏度换算器</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Aimlab 转 Valorant (系数 0.322)</p>
+        <div style="margin-bottom: 15px; text-align:left;">
+            <label style="font-size: 13px; color: #ccc;">Aimlab 灵敏度:</label>
+            <input type="number" id="calc-aimlab" step="0.01" oninput="calcSens('aimlab')">
+        </div>
+        <div style="margin-bottom: 25px; text-align:left;">
+            <label style="font-size: 13px; color: #ccc;">Valorant 灵敏度:</label>
+            <input type="number" id="calc-val" step="0.01" oninput="calcSens('val')">
+        </div>
+        <div>
+            <button onclick="applySens()" style="width: 100%;">一键应用到当前设置</button>
+            <button class="secondary" onclick="toggleSensModal(false)" style="width: 100%; margin-top: 10px;">关闭</button>
+        </div>
+    </div>
+</div>
+
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let GAME_STATE = 'menu'; 
+let CURRENT_MODE = '';
+let lastTime = performance.now();
+
+// 核心数据
+let session = {
+    shots: 0, hits: 0, score: 0, startTime: 0, elapsed: 0,
+    reactionTimes: [], trackHitFrames: 0, trackTotalFrames: 0,
+    lastSpawnTime: 0, nextSpawnTime: 0
+};
+let targets = [];
+let mouse = { x: 0, y: 0 }; 
+
+let config = {
+    nickname: 'Player',
+    dpi: 800,
+    sens: 0.3,
+    duration: 60,
+    difficulty: 'normal',
+    audio: true,
+    crosshair: { color: '#00FF00', len: 6, thick: 2, gap: 3, dot: false }
+};
+
+let audioCtx = null;
+
+function init() {
+    resize();
+    window.addEventListener('resize', resize);
+    
+    const saved = localStorage.getItem('val_aim_config');
+    if (saved) { try { config = { ...config, ...JSON.parse(saved) }; } catch(e) {} }
+    
+    mouse.x = canvas.width / 2; mouse.y = canvas.height / 2;
+    updateSettingsUI();
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('pointerlockchange', handlePointerLockChange);
+    
+    requestAnimationFrame(gameLoop);
+}
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    if(GAME_STATE !== 'playing' && GAME_STATE !== 'warmup') {
+        mouse.x = canvas.width / 2; mouse.y = canvas.height / 2;
+    }
+}
+
+function playSound(type) {
+    if (!config.audio) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    
+    const now = audioCtx.currentTime;
+    if (type === 'hit') {
+        osc.type = 'sine'; osc.frequency.setValueAtTime(800, now); osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+        gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now); osc.stop(now + 0.1);
+    } else if (type === 'miss') {
+        osc.type = 'square'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+        gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now); osc.stop(now + 0.1);
+    } else if (type === 'spawn') {
+        osc.type = 'triangle'; osc.frequency.setValueAtTime(500, now);
+        gain.gain.setValueAtTime(0.05, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        osc.start(now); osc.stop(now + 0.05);
+    }
+}
+
+function handleMouseMove(e) {
+    if (document.pointerLockElement === canvas && (GAME_STATE === 'playing' || GAME_STATE === 'warmup')) {
+        // Raw Input 换算：硬件级 DPI 已经体现在 e.movementX 中。
+        // 这里常数 3.5 用于将 Valorant 的 3D Sens 缩放匹配到 2D 屏幕视角，保证甩枪手感舒适。
+        const multiplier = config.sens * 3.5; 
+        mouse.x += e.movementX * multiplier;
+        mouse.y += e.movementY * multiplier;
+        mouse.x = Math.max(0, Math.min(canvas.width, mouse.x));
+        mouse.y = Math.max(0, Math.min(canvas.height, mouse.y));
+    }
+}
+
+function handleMouseDown(e) {
+    if (e.button !== 0) return; 
+    if (GAME_STATE === 'menu' || GAME_STATE === 'stats') return;
+    
+    if (document.pointerLockElement !== canvas) { canvas.requestPointerLock(); return; }
+    if (GAME_STATE === 'playing') processShoot();
+}
+
+function handleKeyDown(e) {
+    if (e.key.toLowerCase() === 'r') {
+        if (GAME_STATE === 'playing' || GAME_STATE === 'stats' || GAME_STATE === 'warmup') retryGame();
+    }
+}
+
+function handlePointerLockChange() {
+    if (document.pointerLockElement !== canvas && (GAME_STATE === 'playing' || GAME_STATE === 'warmup')) {
+        endGame(true); 
+    }
+}
+
+function startGame(mode) {
+    CURRENT_MODE = mode;
+    hideAllPanels();
+    
+    if (!audioCtx && config.audio) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); }
+    
+    session = { shots: 0, hits: 0, score: 0, startTime: 0, elapsed: 0, reactionTimes: [], trackHitFrames: 0, trackTotalFrames: 0, lastSpawnTime: performance.now(), nextSpawnTime: performance.now() };
+    targets = [];
+    mouse.x = canvas.width / 2; mouse.y = canvas.height / 2;
+    
+    canvas.requestPointerLock();
+    GAME_STATE = 'warmup';
+    session.startTime = performance.now() + 3000; // 默认 3 秒热身
+    document.getElementById('warmup-display').classList.remove('hidden');
+}
+
+function retryGame() { if (CURRENT_MODE) startGame(CURRENT_MODE); }
+
+function endGame(manual = false) {
+    if (GAME_STATE === 'menu' || GAME_STATE === 'stats') return;
+    GAME_STATE = 'stats';
+    if(document.pointerLockElement === canvas) document.exitPointerLock();
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('warmup-display').classList.add('hidden');
+    
+    if (!manual && (session.shots > 0 || session.trackTotalFrames > 0)) saveMatchData();
+    showStats();
+}
+
+function getDifficultyParams() {
+    const diff = config.difficulty;
+    // Base params for different modes
+    if (diff === 'easy') return { radius: 45, speed: 1.5, stayTime: 1200 };
+    if (diff === 'hard') return { radius: 15, speed: 4.0, stayTime: 400 };
+    return { radius: 25, speed: 2.5, stayTime: 700 }; 
+}
+
+function spawnTargetsForMode() {
+    const { radius, speed } = getDifficultyParams();
+    const now = performance.now();
+    
+    if (CURRENT_MODE === 'sixshot') {
+        while (targets.length < 6) targets.push(createRandomTarget(radius));
+    } 
+    else if (CURRENT_MODE === 'fastclick') {
+        // 连点模式：大靶子，数量 5，高频速点
+        while (targets.length < 5) targets.push(createRandomTarget(radius * 1.5));
+    }
+    else if (CURRENT_MODE === 'track') {
+        if (targets.length === 0) {
+            let t = createRandomTarget(radius * 1.2);
+            t.vx = (Math.random() > 0.5 ? 1 : -1) * speed;
+            t.vy = (Math.random() > 0.5 ? 1 : -1) * speed;
+            targets.push(t);
+        }
+    } 
+    else if (CURRENT_MODE === 'strafe') {
+        // 急停模式修复：随机生成 2 个水平 A/D 移动的靶子
+        while (targets.length < 2) {
+            let t = createRandomTarget(radius * 1.1);
+            t.vx = (Math.random() > 0.5 ? 1 : -1) * speed * 1.5;
+            t.vy = 0; // 纯水平
+            t.lastFlip = now;
+            t.flipInterval = 400 + Math.random() * 600; // 随机转向间隔
+            targets.push(t);
+            playSound('spawn');
+        }
+    } 
+    else if (CURRENT_MODE === 'peek') {
+        // 闪身对枪修复：彻底修复制霸边缘问题
+        if (targets.length === 0 && now > session.nextSpawnTime) {
+            let t = {
+                r: radius * 1.2,
+                y: Math.max(radius * 2, Math.random() * (canvas.height - radius * 2)),
+                state: 'peeking_out', holdStartTime: 0
+            };
+            const side = Math.random() > 0.5 ? 'left' : 'right';
+            const vSpeed = speed * 4.5; // Peek 拉出速度极快
+            
+            if (side === 'left') {
+                t.x = -t.r; 
+                t.targetX = t.r + Math.random() * 150 + 50; 
+                t.vx = vSpeed;
+            } else {
+                t.x = canvas.width + t.r; 
+                t.targetX = canvas.width - (t.r + Math.random() * 150 + 50); 
+                t.vx = -vSpeed;
+            }
+            t.side = side;
+            t.spawnTime = now;
+            targets.push(t);
+        }
+    }
+}
+
+function createRandomTarget(r) {
+    return {
+        x: r + Math.random() * (canvas.width - r * 2),
+        y: r + Math.random() * (canvas.height - r * 2),
+        r: r, spawnTime: performance.now()
+    };
+}
+
+function processShoot() {
+    if (CURRENT_MODE === 'track') return; 
+    
+    session.shots++;
+    let hit = false;
+    const now = performance.now();
+    
+    for (let i = targets.length - 1; i >= 0; i--) {
+        const t = targets[i];
+        if (Math.hypot(t.x - mouse.x, t.y - mouse.y) <= t.r) {
+            hit = true;
+            session.hits++;
+            
+            if (CURRENT_MODE === 'reaction' || CURRENT_MODE === 'peek') {
+                session.reactionTimes.push(now - session.lastSpawnTime);
+            } else {
+                 session.reactionTimes.push(now - session.lastSpawnTime);
+                 session.lastSpawnTime = now;
+            }
+            
+            const reactScore = Math.max(0, 1000 - (now - (t.spawnTime || session.lastSpawnTime)) / 1.5);
+            session.score += (100 + reactScore);
+            
+            targets.splice(i, 1);
+            playSound('hit');
+            break;
+        }
+    }
+    
+    if (!hit) playSound('miss');
+    
+    if (CURRENT_MODE === 'reaction') {
+        if (hit) session.nextSpawnTime = now + 600 + Math.random() * 1400; // 击中后随机延时生成下一个
+    } else if (CURRENT_MODE === 'peek') {
+        if (hit) session.nextSpawnTime = now + 800 + Math.random() * 800; // 击杀后稍作停顿
+    } else {
+        spawnTargetsForMode();
+    }
+}
+
+// 核心游戏循环 (带 deltaTime 归一化)
+function gameLoop(timestamp) {
+    // 强制 dt 最大为 50ms，防止玩家切屏回来导致靶子瞬间飞出屏幕
+    let dt = timestamp - lastTime;
+    if (dt > 50) dt = 16.66; 
+    lastTime = timestamp;
+    
+    drawBackground();
+    
+    if (GAME_STATE === 'warmup') {
+        const remain = Math.ceil((session.startTime - timestamp) / 1000);
+        const wd = document.getElementById('warmup-display');
+        if (remain > 0) {
+            wd.innerText = remain;
+        } else {
+            wd.classList.add('hidden');
+            GAME_STATE = 'playing';
+            session.startTime = timestamp;
+            session.lastSpawnTime = timestamp;
+            session.nextSpawnTime = timestamp + 500;
+            document.getElementById('hud').classList.remove('hidden');
+            spawnTargetsForMode();
+        }
+    } 
+    else if (GAME_STATE === 'playing') {
+        session.elapsed = timestamp - session.startTime;
+        const durationMs = config.duration * 1000;
+        
+        if (config.duration > 0 && session.elapsed >= durationMs) { endGame(); return; }
+        
+        updateGameLogic(timestamp, dt);
+        drawTargets();
+        updateHUD();
+    }
+
+    if (document.pointerLockElement === canvas || GAME_STATE === 'playing' || GAME_STATE === 'warmup') {
+        drawCrosshair();
+    }
+    
+    requestAnimationFrame(gameLoop);
+}
+
+function drawBackground() {
+    ctx.fillStyle = '#141722'; 
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.lineWidth = 1;
+    const gridSize = 100;
+    ctx.beginPath();
+    for(let x = 0; x <= canvas.width; x += gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); }
+    for(let y = 0; y <= canvas.height; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); }
+    ctx.stroke();
+}
+
+function updateGameLogic(now, dt) {
+    const timeScale = dt / 16.66; // 以 60帧 为基准单位
+    const { stayTime } = getDifficultyParams();
+
+    // 反应模式生成逻辑
+    if (CURRENT_MODE === 'reaction') {
+        if (targets.length === 0 && now > session.nextSpawnTime) {
+            targets.push(createRandomTarget(getDifficultyParams().radius));
+            playSound('spawn');
+            session.lastSpawnTime = now;
+        }
+    }
+    // 跟枪模式逻辑
+    else if (CURRENT_MODE === 'track' && targets.length > 0) {
+        let t = targets[0];
+        t.x += t.vx * timeScale;
+        t.y += t.vy * timeScale;
+        
+        // 边缘反弹
+        if (t.x < t.r || t.x > canvas.width - t.r) t.vx *= -1;
+        if (t.y < t.r || t.y > canvas.height - t.r) t.vy *= -1;
+        
+        // 随机不规则方向变动 (模拟玩家身法)
+        if (Math.random() < 0.02) t.vx = (Math.random() > 0.5 ? 1 : -1) * Math.abs(t.vx);
+        if (Math.random() < 0.02) t.vy = (Math.random() > 0.5 ? 1 : -1) * Math.abs(t.vy);
+        
+        session.trackTotalFrames++;
+        if (Math.hypot(t.x - mouse.x, t.y - mouse.y) <= t.r) {
+            session.trackHitFrames++;
+            session.score += 5;
+        }
+    } 
+    // 急停模式逻辑 (模拟 A/D 不规律左右横拉)
+    else if (CURRENT_MODE === 'strafe') {
+        for (let i = targets.length - 1; i >= 0; i--) {
+            let t = targets[i];
+            t.x += t.vx * timeScale;
+            
+            if (t.x < t.r || t.x > canvas.width - t.r) t.vx *= -1;
+            
+            if (now - t.lastFlip > t.flipInterval) {
+                t.vx *= -1;
+                t.lastFlip = now;
+                t.flipInterval = 300 + Math.random() * 700; // 不规律停顿反跑
+            }
+        }
+        spawnTargetsForMode(); // 补充靶子
+    }
+    // 闪身对枪 Peek 逻辑 (利用 timeScale 完美解决移速异常)
+    else if (CURRENT_MODE === 'peek') {
+        for (let i = targets.length - 1; i >= 0; i--) {
+            let t = targets[i];
+            if (t.state === 'peeking_out') {
+                t.x += t.vx * timeScale;
+                if ((t.side === 'left' && t.x >= t.targetX) || (t.side === 'right' && t.x <= t.targetX)) {
+                    t.x = t.targetX; 
+                    t.state = 'holding';
+                    t.holdStartTime = now;
+                }
+            } else if (t.state === 'holding') {
+                if (now - t.holdStartTime > stayTime) { // 停留时间受难度影响
+                    t.state = 'peeking_in';
+                    t.vx *= -1; 
+                }
+            } else if (t.state === 'peeking_in') {
+                t.x += t.vx * timeScale;
+                if ((t.side === 'left' && t.x < -t.r) || (t.side === 'right' && t.x > canvas.width + t.r)) {
+                    targets.splice(i, 1); 
+                    session.nextSpawnTime = now + 400; // 跑掉后短暂停顿再来
+                    playSound('miss'); 
+                    session.shots++; 
+                }
+            }
+        }
+        spawnTargetsForMode();
+    }
+}
+
+function drawTargets() {
+    for (let t of targets) {
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
+        
+        if (CURRENT_MODE === 'track') {
+            const isHover = Math.hypot(t.x - mouse.x, t.y - mouse.y) <= t.r;
+            ctx.fillStyle = isHover ? '#00FF00' : '#f94555';
+        } else {
+            ctx.fillStyle = '#f94555';
+        }
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.stroke();
+    }
+}
+
+function drawCrosshair() {
+    const { color, len, thick, gap, dot } = config.crosshair;
+    ctx.fillStyle = color;
+    if (dot) ctx.fillRect(mouse.x - thick/2, mouse.y - thick/2, thick, thick);
+    ctx.fillRect(mouse.x - thick/2, mouse.y - gap - len, thick, len); 
+    ctx.fillRect(mouse.x - thick/2, mouse.y + gap, thick, len); 
+    ctx.fillRect(mouse.x - gap - len, mouse.y - thick/2, len, thick); 
+    ctx.fillRect(mouse.x + gap, mouse.y - thick/2, len, thick); 
+}
+
+function updateHUD() {
+    const remain = config.duration > 0 ? Math.ceil(config.duration - session.elapsed / 1000) : '∞';
+    document.getElementById('hud-time').innerText = `倒计时: ${remain}`;
+    document.getElementById('hud-score').innerText = `得分: ${Math.floor(session.score)}`;
+    
+    if (CURRENT_MODE === 'track') {
+        const acc = session.trackTotalFrames > 0 ? (session.trackHitFrames / session.trackTotalFrames * 100).toFixed(1) : 100;
+        document.getElementById('hud-acc').innerText = `覆盖率: ${acc}%`;
+    } else {
+        const acc = session.shots > 0 ? (session.hits / session.shots * 100).toFixed(1) : 100;
+        document.getElementById('hud-acc').innerText = `命中率: ${acc}%`;
+    }
+}
+
+// ----- UI 逻辑 -----
+function showPanel(panelId) {
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('settings-menu').classList.add('hidden');
+    document.getElementById('stats-menu').classList.add('hidden');
+    document.getElementById('history-menu').classList.add('hidden');
+    document.getElementById('sens-modal').classList.add('hidden');
+    
+    GAME_STATE = (panelId === 'main-menu') ? 'menu' : 'paused';
+    document.getElementById('ui-layer').classList.remove('hidden');
+    document.getElementById(panelId).classList.remove('hidden');
+    
+    if (panelId === 'history-menu') {
+        document.getElementById('hist-mode-select').value = CURRENT_MODE || 'sixshot';
+        renderHistory();
+    }
+}
+function hideAllPanels() { document.getElementById('ui-layer').classList.add('hidden'); }
+
+// 设置相关
+function updateEDPIDisplay() {
+    const dpi = parseInt(document.getElementById('set-dpi').value) || 800;
+    const sens = parseFloat(document.getElementById('set-sens').value) || 0.3;
+    document.getElementById('display-edpi').innerText = `当前 eDPI (游戏内真实速度): ${(dpi * sens).toFixed(1)}`;
+}
+
+function updateSettingsUI() {
+    document.getElementById('set-nickname').value = config.nickname || 'Player';
+    document.getElementById('set-dpi').value = config.dpi || 800;
+    document.getElementById('set-sens').value = config.sens;
+    updateEDPIDisplay();
+    document.getElementById('set-duration').value = config.duration;
+    document.getElementById('set-difficulty').value = config.difficulty;
+    document.getElementById('set-audio').checked = config.audio;
+    document.getElementById('set-xhair-color').value = config.crosshair.color;
+    document.getElementById('set-xhair-len').value = config.crosshair.len;
+    document.getElementById('set-xhair-thick').value = config.crosshair.thick;
+    document.getElementById('set-xhair-gap').value = config.crosshair.gap;
+    document.getElementById('set-xhair-dot').checked = config.crosshair.dot;
+}
+
+function saveSettings() {
+    config.nickname = document.getElementById('set-nickname').value.trim() || 'Player';
+    config.dpi = parseInt(document.getElementById('set-dpi').value) || 800;
+    config.sens = parseFloat(document.getElementById('set-sens').value) || 0.3;
+    config.duration = parseInt(document.getElementById('set-duration').value);
+    config.difficulty = document.getElementById('set-difficulty').value;
+    config.audio = document.getElementById('set-audio').checked;
+    config.crosshair = {
+        color: document.getElementById('set-xhair-color').value, len: parseInt(document.getElementById('set-xhair-len').value),
+        thick: parseInt(document.getElementById('set-xhair-thick').value), gap: parseInt(document.getElementById('set-xhair-gap').value),
+        dot: document.getElementById('set-xhair-dot').checked
+    };
+    localStorage.setItem('val_aim_config', JSON.stringify(config));
+    showPanel('main-menu');
+}
+
+// 灵敏度换算
+function toggleSensModal(show) {
+    const modal = document.getElementById('sens-modal');
+    if (show) {
+        document.getElementById('ui-layer').classList.remove('hidden'); modal.classList.remove('hidden'); GAME_STATE = 'paused';
+    } else {
+        modal.classList.add('hidden'); if (GAME_STATE !== 'playing') showPanel('main-menu');
+    }
+}
+function calcSens(source) {
+    const vAim = document.getElementById('calc-aimlab'), vVal = document.getElementById('calc-val');
+    if (source === 'aimlab' && vAim.value) vVal.value = (parseFloat(vAim.value) * 0.322).toFixed(3);
+    else if (source === 'val' && vVal.value) vAim.value = (parseFloat(vVal.value) / 0.322).toFixed(3);
+}
+function applySens() {
+    const vVal = document.getElementById('calc-val').value;
+    if (vVal && !isNaN(vVal)) {
+        config.sens = parseFloat(vVal);
+        updateSettingsUI();
+        localStorage.setItem('val_aim_config', JSON.stringify(config));
+        alert('✅ 已应用游戏灵敏度: ' + config.sens);
+        toggleSensModal(false);
+    }
+}
+
+// 结算与记录
+function showStats() {
+    let acc, rt, finalScore;
+    if (CURRENT_MODE === 'track') {
+        acc = session.trackTotalFrames > 0 ? (session.trackHitFrames / session.trackTotalFrames * 100) : 0;
+        finalScore = Math.floor(session.score); rt = '-';
+        document.getElementById('stat-shots').innerText = `${session.trackHitFrames} / ${session.trackTotalFrames} 帧`;
+    } else {
+        acc = session.shots > 0 ? (session.hits / session.shots * 100) : 0;
+        let sumRt = session.reactionTimes.reduce((a, b) => a + b, 0);
+        rt = session.reactionTimes.length > 0 ? Math.floor(sumRt / session.reactionTimes.length) : 0;
+        finalScore = Math.floor(session.score * (acc / 100)); 
+        document.getElementById('stat-shots').innerText = `${session.hits} / ${session.shots}`;
+    }
+    
+    document.getElementById('stat-mode').innerText = CURRENT_MODE.toUpperCase();
+    document.getElementById('stat-score').innerText = finalScore;
+    document.getElementById('stat-acc').innerText = acc.toFixed(1) + '%';
+    document.getElementById('stat-rt').innerText = rt;
+    showPanel('stats-menu');
+}
+
+function saveMatchData() {
+    let hist = JSON.parse(localStorage.getItem('val_aim_history') || '{}');
+    if (!hist[CURRENT_MODE]) hist[CURRENT_MODE] = [];
+    
+    let acc, rt, finalScore;
+    if (CURRENT_MODE === 'track') {
+        acc = session.trackTotalFrames > 0 ? (session.trackHitFrames / session.trackTotalFrames * 100) : 0;
+        finalScore = Math.floor(session.score); rt = 0;
+    } else {
+        acc = session.shots > 0 ? (session.hits / session.shots * 100) : 0;
+        let sumRt = session.reactionTimes.reduce((a, b) => a + b, 0);
+        rt = session.reactionTimes.length > 0 ? Math.floor(sumRt / session.reactionTimes.length) : 0;
+        finalScore = Math.floor(session.score * (acc / 100));
+    }
+    const record = { name: config.nickname, date: new Date().toLocaleString(), score: finalScore, acc: acc.toFixed(1), rt: rt, duration: config.duration > 0 ? config.duration + 's' : '∞' };
+    hist[CURRENT_MODE].unshift(record);
+    if (hist[CURRENT_MODE].length > 100) hist[CURRENT_MODE].pop();
+    localStorage.setItem('val_aim_history', JSON.stringify(hist));
+}
+
+let currentHistTab = 'leaderboard';
+function switchHistTab(tab) {
+    currentHistTab = tab;
+    document.getElementById('tab-lb').style.color = tab === 'leaderboard' ? 'var(--accent-red)' : '#fff';
+    document.getElementById('tab-hist').style.color = tab === 'history' ? 'var(--accent-red)' : '#fff';
+    renderHistory();
+}
+function renderHistory() {
+    const mode = document.getElementById('hist-mode-select').value;
+    const histAll = JSON.parse(localStorage.getItem('val_aim_history') || '{}');
+    const records = histAll[mode] || [];
+    const container = document.getElementById('hist-table-container');
+    if (records.length === 0) { container.innerHTML = '<p style="padding: 40px; color: var(--text-muted);">暂无记录</p>'; return; }
+    
+    let displayData = [...records];
+    if (currentHistTab === 'leaderboard') { displayData.sort((a, b) => b.score - a.score); displayData = displayData.slice(0, 20); }
+    
+    let html = `<table><thead><tr><th>${currentHistTab === 'leaderboard' ? '排名' : '序号'}</th><th>玩家</th><th>得分</th><th>命中/覆盖</th><th>反应时间</th><th>时长</th><th>日期</th></tr></thead><tbody>`;
+    displayData.forEach((item, index) => {
+        html += `<tr><td style="color: ${index < 3 && currentHistTab === 'leaderboard' ? 'gold' : '#fff'}">${index + 1}</td><td>${item.name}</td><td style="color:var(--accent-red); font-weight:bold;">${item.score}</td><td>${item.acc}%</td><td>${item.rt > 0 ? item.rt + ' ms' : '-'}</td><td>${item.duration}</td><td style="font-size: 12px; color: var(--text-muted);">${item.date}</td></tr>`;
+    });
+    html += `</tbody></table>`; container.innerHTML = html;
+}
+function clearHistory() {
+    if (!confirm('确定清空当前选中模式的数据吗？')) return;
+    const mode = document.getElementById('hist-mode-select').value;
+    let hist = JSON.parse(localStorage.getItem('val_aim_history') || '{}');
+    hist[mode] = []; localStorage.setItem('val_aim_history', JSON.stringify(hist)); renderHistory();
+}
+
+window.onload = init;
+</script>
+</body>
+</html>
